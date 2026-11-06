@@ -23,6 +23,8 @@ jobs:
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Aceptar licencias e instalar SDK
         run: |
