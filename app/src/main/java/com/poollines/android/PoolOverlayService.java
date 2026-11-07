@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.IBinder;
@@ -24,27 +26,33 @@ public class PoolOverlayService extends Service {
     private LinearLayout panel;
     private LinearLayout content;
     private WindowManager.LayoutParams params;
+
+    private FrameOverlay frameOverlay;
+    private WindowManager.LayoutParams frameParams;
+
     private boolean expanded = true;
+    private boolean frameVisible = false;
 
     private final int GREEN = Color.rgb(0, 220, 125);
     private final int DARK = Color.rgb(19, 23, 29);
     private final int CARD = Color.rgb(30, 36, 44);
 
+    private TextView frameButton;
+
     @Override
     public void onCreate() {
         super.onCreate();
 
-        createNotification();
-
         if (Build.VERSION.SDK_INT >= 23 &&
-            !android.provider.Settings.canDrawOverlays(this)) {
+                !android.provider.Settings.canDrawOverlays(this)) {
             stopSelf();
             return;
         }
 
         windowManager = (WindowManager)
-            getSystemService(WINDOW_SERVICE);
+                getSystemService(WINDOW_SERVICE);
 
+        createNotification();
         createPanel();
     }
 
@@ -53,13 +61,13 @@ public class PoolOverlayService extends Service {
 
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel ch = new NotificationChannel(
-                channel,
-                "PoolLines Panel",
-                NotificationManager.IMPORTANCE_LOW
+                    channel,
+                    "PoolLines Panel",
+                    NotificationManager.IMPORTANCE_LOW
             );
 
             NotificationManager manager =
-                getSystemService(NotificationManager.class);
+                    getSystemService(NotificationManager.class);
 
             manager.createNotificationChannel(ch);
         }
@@ -68,16 +76,16 @@ public class PoolOverlayService extends Service {
 
         if (Build.VERSION.SDK_INT >= 26) {
             notification = new Notification.Builder(this, channel)
-                .setContentTitle("PoolLines")
-                .setContentText("Panel flotante activo")
-                .setSmallIcon(android.R.drawable.sym_def_app_icon)
-                .build();
+                    .setContentTitle("PoolLines")
+                    .setContentText("Panel flotante activo")
+                    .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                    .build();
         } else {
             notification = new Notification.Builder(this)
-                .setContentTitle("PoolLines")
-                .setContentText("Panel flotante activo")
-                .setSmallIcon(android.R.drawable.sym_def_app_icon)
-                .build();
+                    .setContentTitle("PoolLines")
+                    .setContentText("Panel flotante activo")
+                    .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                    .build();
         }
 
         startForeground(1, notification);
@@ -86,61 +94,95 @@ public class PoolOverlayService extends Service {
     private void createPanel() {
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(12, 12, 12, 12);
+        panel.setPadding(dp(12), dp(12), dp(12), dp(12));
         panel.setBackground(background(DARK, 12));
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setPadding(10, 8, 5, 8);
+        header.setPadding(dp(10), dp(8), dp(5), dp(8));
         header.setBackground(background(CARD, 8));
 
         TextView title = text("POOL LINES", 17, GREEN);
         title.setTypeface(null, Typeface.BOLD);
 
-        TextView close = text("  X  ", 17, Color.WHITE);
-        close.setGravity(Gravity.CENTER);
-
         TextView minimize = text("  -  ", 22, GREEN);
         minimize.setGravity(Gravity.CENTER);
 
+        TextView close = text("  X  ", 17, Color.WHITE);
+        close.setGravity(Gravity.CENTER);
+
         header.addView(title, new LinearLayout.LayoutParams(
-            0, -2, 1
+                0, -2, 1
         ));
         header.addView(minimize);
         header.addView(close);
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(5, 12, 5, 5);
+        content.setPadding(dp(5), dp(12), dp(5), dp(5));
 
-        TextView status = text("● PANEL FLOTANTE ACTIVO", 12, GREEN);
-        status.setPadding(5, 8, 5, 15);
+        TextView status = text(
+                "● PANEL FLOTANTE ACTIVO", 12, GREEN
+        );
+        status.setPadding(dp(5), dp(8), dp(5), dp(12));
 
         TextView info = text(
-            "PoolLines Visual Assistant",
-            13,
-            Color.LTGRAY
+                "PoolLines Visual Assistant", 13, Color.LTGRAY
         );
+
+        frameButton = text(
+                "MARCO DE REFERENCIA: DESACTIVADO",
+                12,
+                Color.WHITE
+        );
+        frameButton.setGravity(Gravity.CENTER);
+        frameButton.setPadding(dp(8), dp(12), dp(8), dp(12));
+        frameButton.setBackground(background(CARD, 8));
 
         content.addView(status);
         content.addView(info);
+
+        content.addView(frameButton,
+                new LinearLayout.LayoutParams(
+                        -1, -2
+                ));
 
         panel.addView(header);
         panel.addView(content);
 
         minimize.setOnClickListener(v -> {
             expanded = !expanded;
+
             content.setVisibility(
-                expanded ? View.VISIBLE : View.GONE
+                    expanded ? View.VISIBLE : View.GONE
             );
+
             minimize.setText(expanded ? "  -  " : "  +  ");
             updatePanel();
         });
 
         close.setOnClickListener(v -> stopSelf());
 
-        header.setOnTouchListener(new View.OnTouchListener() {
+        frameButton.setOnClickListener(v -> {
+            frameVisible = !frameVisible;
+
+            if (frameVisible) {
+                showFrame();
+                frameButton.setText(
+                        "MARCO DE REFERENCIA: ACTIVADO"
+                );
+                frameButton.setTextColor(GREEN);
+            } else {
+                hideFrame();
+                frameButton.setText(
+                        "MARCO DE REFERENCIA: DESACTIVADO"
+                );
+                frameButton.setTextColor(Color.WHITE);
+            }
+        });
+
+        title.setOnTouchListener(new View.OnTouchListener() {
             private int startX;
             private int startY;
             private float touchX;
@@ -158,9 +200,10 @@ public class PoolOverlayService extends Service {
 
                 if (event.getAction() == MotionEvent.ACTION_MOVE) {
                     params.x = startX +
-                        (int)(event.getRawX() - touchX);
+                            (int) (event.getRawX() - touchX);
+
                     params.y = startY +
-                        (int)(event.getRawY() - touchY);
+                            (int) (event.getRawY() - touchY);
 
                     updatePanel();
                     return true;
@@ -171,15 +214,15 @@ public class PoolOverlayService extends Service {
         });
 
         int type = Build.VERSION.SDK_INT >= 26
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            : WindowManager.LayoutParams.TYPE_PHONE;
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
 
         params = new WindowManager.LayoutParams(
-            dp(280),
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
+                dp(280),
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
         );
 
         params.gravity = Gravity.TOP | Gravity.START;
@@ -187,6 +230,71 @@ public class PoolOverlayService extends Service {
         params.y = dp(100);
 
         windowManager.addView(panel, params);
+    }
+
+    private void showFrame() {
+        if (frameOverlay != null) return;
+
+        frameOverlay = new FrameOverlay();
+
+        frameParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                Build.VERSION.SDK_INT >= 26
+                        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        : WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+        );
+
+        frameParams.gravity = Gravity.TOP | Gravity.START;
+
+        windowManager.addView(frameOverlay, frameParams);
+    }
+
+    private void hideFrame() {
+        if (frameOverlay != null) {
+            windowManager.removeView(frameOverlay);
+            frameOverlay = null;
+            frameParams = null;
+        }
+    }
+
+    private class FrameOverlay extends View {
+
+        private final Paint paint = new Paint(
+                Paint.ANTI_ALIAS_FLAG
+        );
+
+        FrameOverlay() {
+            super(PoolOverlayService.this);
+
+            paint.setColor(GREEN);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+
+            float marginX = getWidth() * 0.06f;
+            float marginY = getHeight() * 0.20f;
+
+            if (getWidth() > getHeight()) {
+                marginY = getHeight() * 0.15f;
+            }
+
+            canvas.drawRect(
+                    marginX,
+                    marginY,
+                    getWidth() - marginX,
+                    getHeight() - marginY,
+                    paint
+            );
+        }
     }
 
     private void updatePanel() {
@@ -212,12 +320,14 @@ public class PoolOverlayService extends Service {
     }
 
     private int dp(int value) {
-        return (int)(value *
-            getResources().getDisplayMetrics().density);
+        return (int) (value *
+                getResources().getDisplayMetrics().density);
     }
 
     @Override
     public void onDestroy() {
+        hideFrame();
+
         if (panel != null && windowManager != null) {
             windowManager.removeView(panel);
             panel = null;
