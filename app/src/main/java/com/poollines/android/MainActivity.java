@@ -2,153 +2,77 @@ package com.poollines.android;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Switch;
-import android.widget.ScrollView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
-    private final int BG = Color.rgb(13, 16, 21);
-    private final int PANEL = Color.rgb(24, 29, 36);
-    private final int GREEN = Color.rgb(0, 220, 125);
-    private final int WHITE = Color.WHITE;
-    private final int GRAY = Color.rgb(155, 165, 175);
-
-    private LinearLayout menu;
-    private TextView status;
+    private int GREEN = Color.rgb(0, 220, 125);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER);
+        layout.setPadding(25, 25, 25, 25);
+        layout.setBackgroundColor(Color.rgb(13, 16, 21));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(BG);
-
-        menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(20, 25, 20, 25);
-
-        scroll.addView(menu);
-
-        TextView title = text("POOL LINES", 27, GREEN);
+        TextView title = new TextView(this);
+        title.setText("POOL LINES");
+        title.setTextColor(GREEN);
+        title.setTextSize(30);
         title.setTypeface(null, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
-        menu.addView(title);
 
-        TextView subtitle = text("VISUAL ASSISTANT  •  VERSION 1.0", 10, GRAY);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, 5, 0, 22);
-        menu.addView(subtitle);
+        TextView info = new TextView(this);
+        info.setText("MOD MENU");
+        info.setTextColor(Color.LTGRAY);
+        info.setTextSize(13);
+        info.setGravity(Gravity.CENTER);
+        info.setPadding(0, 10, 0, 30);
 
-        LinearLayout header = card();
-        header.setOrientation(LinearLayout.VERTICAL);
+        Button start = new Button(this);
+        start.setText("ACTIVAR PANEL FLOTANTE");
 
-        TextView heading = text("CONTROL PANEL", 15, WHITE);
-        heading.setTypeface(null, Typeface.BOLD);
-        header.addView(heading);
+        start.setOnClickListener(v -> activarPanel());
 
-        status = text("●  SISTEMA INACTIVO", 12, GREEN);
-        status.setPadding(0, 12, 0, 0);
-        header.addView(status);
+        layout.addView(title);
+        layout.addView(info);
+        layout.addView(start);
 
-        menu.addView(header);
-
-        section("GENERAL");
-
-        addSwitch("Mostrar líneas", false);
-        addSwitch("Asistencia visual", false);
-        addSwitch("Detección visual", false);
-
-        section("CALIBRACIÓN");
-
-        addButton("CALIBRAR MESA");
-        addButton("AJUSTAR ESQUINAS");
-
-        section("PRESENTACIÓN");
-
-        addSwitch("Mostrar panel", true);
-        addSwitch("Líneas visibles", true);
-
-        TextView footer = text("POOL LINES  •  MOD MENU STYLE", 10, GRAY);
-        footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, 25, 0, 5);
-        menu.addView(footer);
-
-        setContentView(scroll);
+        setContentView(layout);
     }
 
-    private TextView text(String value, int size, int color) {
-        TextView t = new TextView(this);
-        t.setText(value);
-        t.setTextSize(size);
-        t.setTextColor(color);
-        return t;
-    }
+    private void activarPanel() {
+        if (!Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())
+            );
+            startActivity(intent);
+            Toast.makeText(this,
+                "Activa Permitir sobre otras aplicaciones",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
 
-    private LinearLayout card() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(18, 16, 18, 16);
-        box.setBackground(shape(PANEL, 12));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
-            -1, -2
-        );
-        p.bottomMargin = 12;
-        box.setLayoutParams(p);
-        return box;
-    }
+        Intent service = new Intent(this, PoolOverlayService.class);
+        startService(service);
 
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(radius * getResources().getDisplayMetrics().density);
-        d.setStroke(1, Color.rgb(43, 53, 62));
-        return d;
-    }
-
-    private void section(String name) {
-        TextView t = text(name, 12, GREEN);
-        t.setTypeface(null, Typeface.BOLD);
-        t.setPadding(5, 18, 5, 9);
-        menu.addView(t);
-    }
-
-    private void addSwitch(String name, boolean checked) {
-        LinearLayout box = card();
-
-        Switch control = new Switch(this);
-        control.setText(name);
-        control.setTextColor(WHITE);
-        control.setTextSize(14);
-        control.setChecked(checked);
-        control.setPadding(2, 3, 2, 3);
-
-        box.addView(control);
-        menu.addView(box);
-    }
-
-    private void addButton(String name) {
-        TextView button = text(name, 13, GREEN);
-        button.setTypeface(null, Typeface.BOLD);
-        button.setGravity(Gravity.CENTER);
-        button.setPadding(15, 17, 15, 17);
-        button.setBackground(shape(PANEL, 10));
-
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
-            -1, -2
-        );
-        p.bottomMargin = 10;
-        button.setLayoutParams(p);
-
-        menu.addView(button);
+        Toast.makeText(this,
+            "Panel activado",
+            Toast.LENGTH_SHORT).show();
     }
 }
