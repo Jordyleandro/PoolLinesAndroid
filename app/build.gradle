@@ -21,12 +21,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools'
-
-      - name: Aceptar licencias e instalar SDK
+      - name: Instalar SDK Android
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
