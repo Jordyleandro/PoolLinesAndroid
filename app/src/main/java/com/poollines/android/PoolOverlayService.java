@@ -30,6 +30,13 @@ public class PoolOverlayService extends Service {
     private FrameOverlay frameOverlay;
     private WindowManager.LayoutParams frameParams;
 
+    private HandleView[] handles = new HandleView[4];
+    private WindowManager.LayoutParams[] handleParams =
+            new WindowManager.LayoutParams[4];
+
+    private float left, top, right, bottom;
+    private boolean frameInitialized = false;
+
     private boolean expanded = true;
     private boolean frameVisible = false;
 
@@ -132,7 +139,7 @@ public class PoolOverlayService extends Service {
         );
 
         frameButton = text(
-                "MARCO DE REFERENCIA: DESACTIVADO",
+                "AJUSTAR MARCO DE MESA",
                 12,
                 Color.WHITE
         );
@@ -142,22 +149,16 @@ public class PoolOverlayService extends Service {
 
         content.addView(status);
         content.addView(info);
-
-        content.addView(frameButton,
-                new LinearLayout.LayoutParams(
-                        -1, -2
-                ));
+        content.addView(frameButton);
 
         panel.addView(header);
         panel.addView(content);
 
         minimize.setOnClickListener(v -> {
             expanded = !expanded;
-
             content.setVisibility(
                     expanded ? View.VISIBLE : View.GONE
             );
-
             minimize.setText(expanded ? "  -  " : "  +  ");
             updatePanel();
         });
@@ -169,24 +170,18 @@ public class PoolOverlayService extends Service {
 
             if (frameVisible) {
                 showFrame();
-                frameButton.setText(
-                        "MARCO DE REFERENCIA: ACTIVADO"
-                );
+                frameButton.setText("MARCO ACTIVO - ARRASTRA LAS ESQUINAS");
                 frameButton.setTextColor(GREEN);
             } else {
                 hideFrame();
-                frameButton.setText(
-                        "MARCO DE REFERENCIA: DESACTIVADO"
-                );
+                frameButton.setText("AJUSTAR MARCO DE MESA");
                 frameButton.setTextColor(Color.WHITE);
             }
         });
 
         title.setOnTouchListener(new View.OnTouchListener() {
-            private int startX;
-            private int startY;
-            private float touchX;
-            private float touchY;
+            private int startX, startY;
+            private float touchX, touchY;
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
@@ -200,11 +195,9 @@ public class PoolOverlayService extends Service {
 
                 if (event.getAction() == MotionEvent.ACTION_MOVE) {
                     params.x = startX +
-                            (int) (event.getRawX() - touchX);
-
+                            (int)(event.getRawX() - touchX);
                     params.y = startY +
-                            (int) (event.getRawY() - touchY);
-
+                            (int)(event.getRawY() - touchY);
                     updatePanel();
                     return true;
                 }
@@ -232,8 +225,24 @@ public class PoolOverlayService extends Service {
         windowManager.addView(panel, params);
     }
 
+    private void initializeFrame() {
+        if (frameInitialized) return;
+
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+
+        left = width * 0.16f;
+        right = width * 0.84f;
+        top = height * 0.15f;
+        bottom = height * 0.99f;
+
+        frameInitialized = true;
+    }
+
     private void showFrame() {
         if (frameOverlay != null) return;
+
+        initializeFrame();
 
         frameOverlay = new FrameOverlay();
 
@@ -250,11 +259,120 @@ public class PoolOverlayService extends Service {
         );
 
         frameParams.gravity = Gravity.TOP | Gravity.START;
-
         windowManager.addView(frameOverlay, frameParams);
+
+        for (int i = 0; i < 4; i++) {
+            final int corner = i;
+
+            handles[i] = new HandleView(corner);
+
+            handleParams[i] = new WindowManager.LayoutParams(
+                    dp(36),
+                    dp(36),
+                    Build.VERSION.SDK_INT >= 26
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+            );
+
+            handleParams[i].gravity = Gravity.TOP | Gravity.START;
+
+            handles[i].setOnTouchListener(
+                    new View.OnTouchListener() {
+                        private float downX, downY;
+                        private float originalX, originalY;
+
+                        @Override
+                        public boolean onTouch(View v, MotionEvent event) {
+                            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                                downX = event.getRawX();
+                                downY = event.getRawY();
+
+                                originalX = getCornerX(corner);
+                                originalY = getCornerY(corner);
+                                return true;
+                            }
+
+                            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                                float newX = originalX +
+                                        event.getRawX() - downX;
+                                float newY = originalY +
+                                        event.getRawY() - downY;
+
+                                moveCorner(corner, newX, newY);
+                                return true;
+                            }
+
+                            return true;
+                        }
+                    }
+            );
+
+            windowManager.addView(handles[i], handleParams[i]);
+        }
+
+        updateFrame();
+    }
+
+    private float getCornerX(int corner) {
+        return (corner == 0 || corner == 2) ? left : right;
+    }
+
+    private float getCornerY(int corner) {
+        return (corner == 0 || corner == 1) ? top : bottom;
+    }
+
+    private void moveCorner(int corner, float x, float y) {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+
+        float min = dp(80);
+
+        if (corner == 0 || corner == 2) {
+            left = Math.max(0, Math.min(x, right - min));
+        } else {
+            right = Math.min(width, Math.max(x, left + min));
+        }
+
+        if (corner == 0 || corner == 1) {
+            top = Math.max(0, Math.min(y, bottom - min));
+        } else {
+            bottom = Math.min(height, Math.max(y, top + min));
+        }
+
+        updateFrame();
+    }
+
+    private void updateFrame() {
+        if (frameOverlay != null) {
+            frameOverlay.invalidate();
+        }
+
+        for (int i = 0; i < 4; i++) {
+            if (handles[i] != null && handleParams[i] != null) {
+                handleParams[i].x =
+                        (int)getCornerX(i) - dp(18);
+                handleParams[i].y =
+                        (int)getCornerY(i) - dp(18);
+
+                windowManager.updateViewLayout(
+                        handles[i], handleParams[i]
+                );
+            }
+        }
     }
 
     private void hideFrame() {
+        for (int i = 0; i < 4; i++) {
+            if (handles[i] != null) {
+                windowManager.removeView(handles[i]);
+                handles[i] = null;
+                handleParams[i] = null;
+            }
+        }
+
         if (frameOverlay != null) {
             windowManager.removeView(frameOverlay);
             frameOverlay = null;
@@ -262,15 +380,37 @@ public class PoolOverlayService extends Service {
         }
     }
 
-    private class FrameOverlay extends View {
+    private class HandleView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        private final Paint paint = new Paint(
-                Paint.ANTI_ALIAS_FLAG
-        );
+        HandleView(int corner) {
+            super(PoolOverlayService.this);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f;
+
+            paint.setColor(GREEN);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(cx, cy, dp(11), paint);
+
+            paint.setColor(Color.WHITE);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2));
+            canvas.drawCircle(cx, cy, dp(11), paint);
+        }
+    }
+
+    private class FrameOverlay extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         FrameOverlay() {
             super(PoolOverlayService.this);
-
             paint.setColor(GREEN);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(2));
@@ -280,20 +420,7 @@ public class PoolOverlayService extends Service {
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
 
-            float marginX = getWidth() * 0.06f;
-            float marginY = getHeight() * 0.20f;
-
-            if (getWidth() > getHeight()) {
-                marginY = getHeight() * 0.15f;
-            }
-
-            canvas.drawRect(
-                    marginX,
-                    marginY,
-                    getWidth() - marginX,
-                    getHeight() - marginY,
-                    paint
-            );
+            canvas.drawRect(left, top, right, bottom, paint);
         }
     }
 
@@ -320,7 +447,7 @@ public class PoolOverlayService extends Service {
     }
 
     private int dp(int value) {
-        return (int) (value *
+        return (int)(value *
                 getResources().getDisplayMetrics().density);
     }
 
