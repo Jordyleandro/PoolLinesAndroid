@@ -120,7 +120,7 @@ public class ScreenCaptureService extends Service {
                     int red = buffer.get(index) & 255;
                     int green = buffer.get(index + 1) & 255;
                     int blue = buffer.get(index + 2) & 255;
-                    if (red > 190 && green > 190 && blue > 190
+                    if (red > 225 && green > 225 && blue > 225
                             && Math.abs(red-green) < 45 && Math.abs(green-blue) < 45) {
                         hit = true; break;
                     }
