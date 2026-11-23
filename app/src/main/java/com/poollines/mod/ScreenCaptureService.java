@@ -36,6 +36,7 @@ public class ScreenCaptureService extends Service {
     private float originX = -1f, originY = -1f;
     private int screenWidth, screenHeight, density;
     private long lastUpdate;
+    private float stableAngle = Float.NaN;
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -62,6 +63,7 @@ public class ScreenCaptureService extends Service {
         if (ACTION_ORIGIN.equals(intent.getAction())) {
             originX = intent.getFloatExtra(EXTRA_X, -1f);
             originY = intent.getFloatExtra(EXTRA_Y, -1f);
+            stableAngle = Float.NaN;
             return START_STICKY;
         }
         int result = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
@@ -77,6 +79,10 @@ public class ScreenCaptureService extends Service {
         density = metrics.densityDpi;
         MediaProjectionManager manager = (MediaProjectionManager)getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         projection = manager.getMediaProjection(result, data);
+        if (projection == null) {
+            stopSelf();
+            return;
+        }
         reader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
         reader.setOnImageAvailableListener(r -> {
             Image image = null;
@@ -95,46 +101,83 @@ public class ScreenCaptureService extends Service {
     private void analyze(Image image) {
         if (originX < 0 || originY < 0) return;
         long now = System.currentTimeMillis();
-        if (now - lastUpdate < 120) return;
+        if (now - lastUpdate < 150) return;
         lastUpdate = now;
+
         Image.Plane plane = image.getPlanes()[0];
         ByteBuffer buffer = plane.getBuffer();
         int pixelStride = plane.getPixelStride();
         int rowStride = plane.getRowStride();
         int base = buffer.position();
-        int bestAngle = -1, bestScore = 0;
-        int maxDistance = Math.min(420, Math.min(screenWidth, screenHeight) / 2);
+
+        int bestAngle = -1;
+        int bestScore = 0;
+        int maxDistance = Math.min(600, Math.min(screenWidth, screenHeight) * 3 / 4);
+
+        // La guía debe formar un trazo continuo desde la bola, no solo reflejos aislados.
         for (int angle = 0; angle < 360; angle++) {
             double rad = Math.toRadians(angle);
             double dx = Math.cos(rad), dy = Math.sin(rad);
-            int score = 0;
-            for (int d = 24; d < maxDistance; d += 3) {
+            int hits = 0;
+            int run = 0;
+            int longestRun = 0;
+
+            for (int d = 22; d < maxDistance; d += 3) {
                 int x = Math.round(originX + (float)(dx * d));
                 int y = Math.round(originY + (float)(dy * d));
-                if (x < 2 || y < 2 || x >= screenWidth - 2 || y >= screenHeight - 2) break;
+                if (x < 3 || y < 3 || x >= screenWidth - 3 || y >= screenHeight - 3) break;
+
                 boolean hit = false;
                 for (int side = -2; side <= 2; side++) {
                     int sx = Math.round(x - (float)(dy * side));
                     int sy = Math.round(y + (float)(dx * side));
+                    if (sx < 0 || sy < 0 || sx >= screenWidth || sy >= screenHeight) continue;
                     int index = base + sy * rowStride + sx * pixelStride;
+                    if (index < base || index + 2 >= buffer.limit()) continue;
+
                     int red = buffer.get(index) & 255;
                     int green = buffer.get(index + 1) & 255;
                     int blue = buffer.get(index + 2) & 255;
                     if (red > 225 && green > 225 && blue > 225
-                            && Math.abs(red-green) < 45 && Math.abs(green-blue) < 45) {
-                        hit = true; break;
+                            && Math.abs(red - green) < 38 && Math.abs(green - blue) < 38) {
+                        hit = true;
+                        break;
                     }
                 }
-                if (hit) score++;
+
+                if (hit) {
+                    hits++;
+                    run++;
+                    if (run > longestRun) longestRun = run;
+                } else {
+                    run = 0;
+                }
             }
-            if (score > bestScore) { bestScore = score; bestAngle = angle; }
+
+            // Penaliza puntos blancos dispersos y premia una línea larga y seguida.
+            int score = hits + longestRun * 2;
+            if (hits >= 10 && longestRun >= 6 && score > bestScore) {
+                bestScore = score;
+                bestAngle = angle;
+            }
         }
-        if (bestAngle >= 0 && bestScore >= 9) {
-            Intent update = new Intent(ACTION_DIRECTION);
-            update.setPackage(getPackageName());
-            update.putExtra("angle", bestAngle);
-            sendBroadcast(update);
+
+        if (bestAngle < 0) return;
+
+        // Suavizado angular circular para evitar que la línea tiemble entre fotogramas.
+        if (Float.isNaN(stableAngle)) {
+            stableAngle = bestAngle;
+        } else {
+            float delta = ((bestAngle - stableAngle + 540f) % 360f) - 180f;
+            // Si el detector salta a una dirección opuesta por un reflejo aislado, no seguirlo.
+            if (Math.abs(delta) > 70f) return;
+            stableAngle = (stableAngle + delta * 0.38f + 360f) % 360f;
         }
+
+        Intent update = new Intent(ACTION_DIRECTION);
+        update.setPackage(getPackageName());
+        update.putExtra("angle", Math.round(stableAngle) % 360);
+        sendBroadcast(update);
     }
 
     @Override public void onDestroy() {
