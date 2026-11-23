@@ -19,14 +19,13 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Crear Gradle Wrapper compatible
-      run: gradle wrapper --gradle-version 7.6.4
-
-    - name: Dar permisos a Gradle
-      run: chmod +x gradlew
+    - name: Descargar Gradle 7.6.4 compatible
+      run: |
+        wget -q https://services.gradle.org/distributions/gradle-7.6.4-bin.zip
+        unzip -q gradle-7.6.4-bin.zip
 
     - name: Compilar APK Debug
-      run: ./gradlew assembleDebug
+      run: ./gradle-7.6.4/bin/gradle assembleDebug
 
     - name: Subir APK
       uses: actions/upload-artifact@v4
