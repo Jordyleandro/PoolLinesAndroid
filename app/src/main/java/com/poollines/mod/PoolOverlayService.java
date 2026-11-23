@@ -5,6 +5,9 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -30,8 +33,19 @@ public class PoolOverlayService extends Service {
     private WindowManager.LayoutParams panelParams;
     private boolean lineVisible = true;
     private boolean choosingOrigin = false;
+    private BroadcastReceiver directionReceiver;
 
     @Override public IBinder onBind(Intent intent) { return null; }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.hasExtra(ScreenCaptureService.EXTRA_RESULT_DATA)) {
+            Intent capture = new Intent(this, ScreenCaptureService.class);
+            capture.putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, intent.getIntExtra(ScreenCaptureService.EXTRA_RESULT_CODE, 0));
+            capture.putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, (Intent) intent.getParcelableExtra(ScreenCaptureService.EXTRA_RESULT_DATA));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(capture); else startService(capture);
+        }
+        return START_STICKY;
+    }
 
     @Override
     public void onCreate() {
@@ -40,6 +54,14 @@ public class PoolOverlayService extends Service {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         addLineLayer();
         addControlPanel();
+        directionReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (lineView != null) lineView.setAngle(intent.getIntExtra("angle", 0));
+            }
+        };
+        IntentFilter filter = new IntentFilter(ScreenCaptureService.ACTION_DIRECTION);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(directionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(directionReceiver, filter);
     }
 
     private void startAsForegroundService() {
@@ -124,23 +146,6 @@ public class PoolOverlayService extends Service {
             Toast.makeText(this, "Toca el centro de la bola blanca", Toast.LENGTH_SHORT).show();
         });
 
-        TextView angleLabel = new TextView(this);
-        angleLabel.setTextColor(Color.WHITE);
-        angleLabel.setText("Dirección de tiro");
-        root.addView(angleLabel);
-
-        SeekBar angleBar = new SeekBar(this);
-        angleBar.setMax(359);
-        angleBar.setProgress(0);
-        root.addView(angleBar);
-        angleBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                lineView.setAngle(progress);
-            }
-            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
-            @Override public void onStopTrackingTouch(SeekBar seekBar) { }
-        });
-
         Button visibilityButton = new Button(this);
         visibilityButton.setText("OCULTAR LÍNEA");
         root.addView(visibilityButton);
@@ -168,6 +173,11 @@ public class PoolOverlayService extends Service {
 
     private void finishOriginSelection(float x, float y) {
         lineView.setOrigin(x, y);
+        Intent origin = new Intent(this, ScreenCaptureService.class);
+        origin.setAction(ScreenCaptureService.ACTION_ORIGIN);
+        origin.putExtra(ScreenCaptureService.EXTRA_X, x);
+        origin.putExtra(ScreenCaptureService.EXTRA_Y, y);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(origin); else startService(origin);
         choosingOrigin = false;
         lineParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -179,6 +189,8 @@ public class PoolOverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        if (directionReceiver != null) { try { unregisterReceiver(directionReceiver); } catch (Exception ignored) { } }
+        stopService(new Intent(this, ScreenCaptureService.class));
         if (windowManager != null) {
             if (lineView != null) windowManager.removeView(lineView);
             if (panel != null) windowManager.removeView(panel);
